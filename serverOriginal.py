@@ -140,7 +140,7 @@ def handle_client(client_connection, client_address):
                     logging.error(f"Error parsing If-Modified-Since header: {e}")
                     # If the header is malformed, ignore it and proceed
 
-            # Read and send the file content in interleaved chunks (simulating frame-based transmission)
+            # Read and send the file content in chunks (frames)
             try:
                 with open(filepath, 'rb') as f:
                     content = f.read()
@@ -160,14 +160,15 @@ def handle_client(client_connection, client_address):
 
                 client_connection.sendall(header.encode())
 
-                # Send the content in interleaved frames (chunks) with artificial delay for simulation
+                # Send the content in chunks (frames)
                 chunk_size = 4096  # 4KB chunks
                 for i in range(0, len(content), chunk_size):
                     chunk = content[i:i+chunk_size]
-                    # Simulate HOL blocking by sending chunks interleaved
+                    # Send the size of the chunk in hex followed by CRLF
                     client_connection.sendall(f"{len(chunk):X}\r\n".encode())
+                    # Send the chunk data followed by CRLF
                     client_connection.sendall(chunk + b"\r\n")
-                    time.sleep(0.005)  # Simulate small delay to interleave the frame transmission
+                    time.sleep(0.01)  # Simulate delay for interleaving
 
                 # Send the terminating chunk
                 client_connection.sendall(b"0\r\n\r\n")
@@ -185,6 +186,7 @@ def handle_client(client_connection, client_address):
                 break  # Exit the loop to close the connection
 
     except Exception as e:
+        # Handle unexpected exceptions
         logging.error(f"Unexpected error with {client_address}: {e}")
         try:
             header = 'HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n'
@@ -200,20 +202,22 @@ def handle_client(client_connection, client_address):
         logging.info(f"Closed connection with {client_address}")
 
 def start_server():
+    # Create a listening socket
     listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listen_socket.bind((HOST, PORT))
-    listen_socket.listen(100)  # Allow up to 100 connections
+    listen_socket.listen(100)  # Increased backlog for handling more connections
     logging.info(f'Serving HTTP on port {PORT} ...')
 
     while True:
         try:
+            # Accept client connections
             client_connection, client_address = listen_socket.accept()
             logging.info(f"Accepted connection from {client_address}")
 
-            # Create a new thread for each client connection
+            # Handle each client connection in a new thread
             client_thread = threading.Thread(target=handle_client, args=(client_connection, client_address))
-            client_thread.daemon = True
+            client_thread.daemon = True  # Daemonize thread to exit when main thread does
             client_thread.start()
 
         except KeyboardInterrupt:
